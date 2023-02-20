@@ -20,9 +20,13 @@
 # RStudio files
 .Rproj.user/
 
+# Folder
+*Trend_analysis_Theil_Sen_files*
+
 # produced vignettes
 vignettes/*.html
 vignettes/*.pdf
+*.html
 
 # OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
 .httr-oauth
@@ -37,3 +41,5 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+/.quarto/

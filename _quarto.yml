@@ -1,0 +1,13 @@
+project:
+  type: default
+  title: "Trend analysis of Environment Canterbury Theil Sen"
+
+format: 
+  html
+
+execute: 
+  warning: false
+  message: false
+  echo: true
+
+
