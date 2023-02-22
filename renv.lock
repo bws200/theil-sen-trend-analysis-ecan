@@ -824,21 +824,6 @@
         "lattice"
       ]
     },
-    "odbc": {
-      "Package": "odbc",
-      "Version": "1.3.3",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "3f9efc29c48dca3aebf00b61a472d543",
-      "Requirements": [
-        "DBI",
-        "Rcpp",
-        "bit64",
-        "blob",
-        "hms",
-        "rlang"
-      ]
-    },
     "openair": {
       "Package": "openair",
       "Version": "2.13",

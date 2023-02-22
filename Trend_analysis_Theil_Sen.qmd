@@ -2,6 +2,10 @@
 title: "ECAN PM trend analysis"
 author: "Ben Scott"
 date: "`r Sys.Date()`"
+format:
+  html:
+    self-contained: true
+    toc: true
 ---
 
 ```{r setup, include=FALSE}
@@ -10,8 +14,8 @@ library(tidyverse)
 library(httr)
 library(DBI)
 
-# Need a function to round like excel
-round2 <- function(x, digits = 0) {  # Function to always round 0.5 up
+# Need a function to round like excel e.g. Function to always round 0.5 up
+round2 <- function(x, digits = 0) {
   posneg <- sign(x)
   z <- abs(x) * 10^digits
   z <- z + 0.5
@@ -28,55 +32,20 @@ This is a working document and will update and change. The steps shown are from 
 
 ## Method 1 - using method 98 on data.ecan.govt.nz [link](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data) DAILY
 
-This uses a stored procedure to retrieve daily averages calculated by and stored within the Envista database. The equivalent table is in `dbo.Alldaily.`
+This method uses a stored procedure to retrieve daily averages from the [ecan website](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data) calculated by and stored within the Envista database. The equivalent table is `dbo.Alldaily.`
+
+The stored procedure `pAir_MonDailyAllParams` takes care of this and outputs data via the website. For here we can just use the website which retrieves the data in `.csv` format. The inputs are a start and end date and a station. This can be automated to request data for each station between dates. The dates of interest are for the previous 10 years
 
 ```{r}
-# Database connection string
-conn <- DBI::dbConnect(
-  odbc::odbc(),
-  Driver = "SQL Server",
-  Server = "sql03prod",
-  Database = "Envista",
-  Trusted_Connection = "True"
-  )
 
-# Get data table
-DBI::dbGetQuery(
-  conn, "
-  SELECT TOP 5 *
-  FROM AllDaily")
+from_date <- "01/01/2013"
+to_date <- "31/12/2015"
 
 ```
-
-The `StationCode` and `MonitorTypeCode` needs to be read from the `dbo.TB_Station` and `dbo.TB_Monitor_Type` tables.
-
-::: callout-warning
-The TB_Station query doesn't work if all columns (`SELECT *`) are selected. There is some bug in the SQL driver
-:::
-
-```{r}
-# StationCode
-DBI::dbGetQuery(
-  conn, "
-  SELECT TOP 5 STA_SerialCode, STA_StationCode, STA_StationName
-  FROM TB_STATION")
-
-# MonitorTypeCode
-DBI::dbGetQuery(
-  conn, "
-  SELECT TOP 5 *
-  FROM TB_Monitor_Type")
-
-```
-
-The stored procedure `pAir_MonDailyAllParams` takes care of this and outputs data. The inputs are a start and end date and a station. This can be automated to request data for each station for the required time period as below.
 
 The first steps are some setup work for values to get and addresses etc.
 
 ```{r}
-# Date range
-from_date <- "01/01/2013"
-to_date <- "31/12/2022"
 
 # URL for getting list of available stations
 response_stations <- httr::GET(
@@ -125,7 +94,12 @@ for (ii in station_id_list$SiteNo) {
   URL_request <- utils::URLencode(URL_string)   
 
   # Send URL request message
-  response <- httr::GET(URL_request)   
+  response <- httr::GET(URL_request)
+  
+  # Stop if response code is an error. Could include other codes in future
+  if (response$status_code == 500) {
+    next
+  }
 
   # Response for that station received
   dat_raw <- content(
@@ -145,13 +119,6 @@ for (ii in station_id_list$SiteNo) {
   
   # Simplify column names
   names(dat) <- gsub(x = names(dat), pattern = "\\.", replacement = "")  
-  
-  # Rename columns
-  # dat <- dat |> 
-  #   rename_with(
-  #     PM10 = PM10ugm3,
-  #     PM25 = PM25ugm3
-  #   )
   
   # Different variables at each station
   dat_longer <- pivot_longer(
@@ -191,7 +158,8 @@ df_daily_pm <- df_final_long |>
   rename(
     date = DateTime,
     PM10 = PM10ugm3,
-    PM25 = PM25ugm3
+    PM25 = PM25ugm3,
+    site = StationName
     ) |>
   # Add columns for data checking
   mutate(
@@ -201,156 +169,139 @@ df_daily_pm <- df_final_long |>
     )
 
 # Rename stations to combine them - NOT best practice
-df_daily_pm$StationName <- recode(
-  df_daily_pm$StationName,
+df_daily_pm$site <- recode(
+  df_daily_pm$site,
   "St Albans EP" = "St Albans",
-  # "Washdyke Alpine" = "Washdyke",
-  # "Washdyke Flat Road" = "Washdyke",
-  "Waimate Kennedy" = "Waimate",
-  "Waimate Stadium" = "Waimate"
-  )
-
-df_daily_pm$StationName <- recode(
-  df_daily_pm$StationName,
-  "St Albans EP" = "St Albans",
-  # "Washdyke Alpine" = "Washdyke",
-  # "Washdyke Flat Road" = "Washdyke",
   "Waimate Kennedy" = "Waimate",
   "Waimate Stadium" = "Waimate"
   )
 
 ```
 
-Before doing the trend estimate it is a good idea to plot the data to check for holes. Possibly use the highcharter library for this.
+Before doing the trend estimate it is a good idea to plot the data to check for holes. The [openair]{.pkg} function `summaryPlot` is handy for this
 
 ```{r}
+#| column: page
+#| fig-width: 20
+#| fig-height: 30
 
+df_daily_pm |>
+  select(!PM25) |> 
+  group_by(site, year, month) |>
+  summarise(n = n()/mean(days_per_month) * 100) |> 
+  filter(n < 75)
 
+openair::summaryPlot(
+  mydata = select(df_daily_pm, c("date", "site", "PM10", "PM25")),
+  pollutant = c("PM10"),
+  fontsize = 30
+)
+
+openair::summaryPlot(
+  mydata = select(df_daily_pm, c("date", "site", "PM10", "PM25")),
+  pollutant = c("PM25"),
+  fontsize = 30
+)
+
+```
+
+No trend should be calculated for Washdyke as the site has been changed so we can remove those stations from the data set.
+
+```{r}
+# Create PM10 dataset without Washdyke
+df_daily_pm_no_washdyke <- df_daily_pm |>
+  # Remove Washdyke sites
+  filter(!(site %in% c("Washdyke Alpine", "Washdyke Flat Road"))) |> 
+  # Remove PM2.5
+  select(!c(PM25)) |>
+  # Create dummy variable for removing data later
+  mutate(dummy = paste0(site,month,year))
+
+# Create a check dataframe which shows 
+df_check <- df_daily_pm_no_washdyke |> 
+  group_by(site, year, month) |>
+  count(Logic = !is.na(PM10)) |> 
+  filter(Logic == FALSE & n >= 7) |>  # 7 days in a month missing at most
+  # Create dummy variable
+  mutate(dummy2 = paste0(site, month, year)) 
+
+# 
+# openair::summaryPlot(
+#   mydata = filter(
+#     df_daily_pm_no_washdyke,
+#     !(dummy %in% df_check$dummy2)),
+#   fontsize = 30
+# )
+
+```
+
+This suggests that all remaining sites are OK, other than St Albans data. Based on the trend information sheet, recent data should be discarded and trends calculated from the period prior to 2020-11. The site was shut down then 2020-11-11 so that will be the end date.
+
+```{r}
+#| column: page
+#| fig-width: 20
+#| fig-height: 30
+
+df_daily_pm10_clean <- df_daily_pm_no_washdyke |>
+  # Remove St Albans data prior to this date due to site movement
+  filter(!(date > as.Date("2020-11-11") & site == "St Albans"))
+
+# Summary plot
+openair::summaryPlot(
+  mydata = filter(
+    df_daily_pm10_clean,
+    !(dummy %in% df_check$dummy2)),
+  fontsize = 30
+)
 
 
 ```
 
-```{r}
-# # Make a data availability table to calculate how many months are less than 75 % or something similar
-# data_availability <- df_daily_pm |>
-#   group_by(StationName, year, month) |>
-#   summarise(`% available` = sum(!is.na(`PM10 (ug/m3)`))/days_per_month*100) |>
-#   summarise(`% available` = round(mean(`% available`),1))
-# 
-# # Plot of data availability
-# data_availability |>
-#   ggplot(aes(x = paste0(year, month), y = `% available`)) +
-#   geom_point() +
-#   facet_wrap(~StationName)
-# 
-# data_availability_75 <- data_availability |>
-#   filter(`% available` < 75)
-# 
-# df_daily_pm_75_available <- df_daily_pm
-# 
-# print(data_availability_75)
-# 
-# # Change original daily pm data to be NA if not enough days in a month are available
-# for (ii in 1:nrow(data_availability_75)) {
-#   test <- data_availability_75[ii,]
-#   df_daily_pm_75_available[df_daily_pm_75_available$StationName == test$StationName & df_daily_pm_75_available$month == test$month & df_daily_pm_75_available$year == test$year,3] <- NA
-# }
-# 
-# # Plot just to look at data
-# df_daily_pm_75_available |>
-#   filter(StationName == "St Albans") |>
-#   filter(date >= "2020-01-01" & date < "2022-01-01") |>
-#   ggplot(aes(x = date, y = `PM10 (ug/m3)`)) +
-#   geom_line() +
-#   scale_x_date(date_labels = "%b", date_breaks = "1 month") +
-#   facet_wrap(~StationName)
-# 
-# # Do the analysis
-# p2 <- openair::TheilSen(df_daily_pm,
-#                         pollutant = "PM10..ug.m3.",
-#                         deseason = TRUE,
-#                         date.format = "%Y",
-#                         type = "StationName",
-#                         data.thresh = 75,
-#                         hemisphere = "southern")
-# 
-# # Create monthly data
-# monthly_data <- p2$data$main.data |> 
-#   select(c(StationName, date, conc)) |> 
-#   filter(StationName == "St Albans")
-# 
-# ### Plot monthly data
-# # First by ggplot
-# monthly_data |> 
-#   ggplot(aes(x = date, y = conc)) +
-#   geom_line() +
-#   facet_wrap(~StationName)
-# 
-# # Also can plot with highchart which is handy for exposing the month averages
-# library(highcharter)
-# 
-# highchart() |> 
-#   hc_add_series(type = "line",
-#                 data = monthly_data,
-#                 hcaes(x = datetime_to_timestamp(date),
-#                       y = round(conc,2),
-#                       group = StationName)) |> 
-#   hc_xAxis(type = 'datetime',
-#            labels = list(format = '{value: %e %b %Y}')) |> 
-#   hc_tooltip(crosshairs = TRUE,
-#              shared = TRUE,
-#              borderWidth = 5)
-
-```
+So now can run the Theil-Sen analysis
 
 ```{r}
-# Another attempt at doing data averages
-# 
-# openair::timeAverage(df_daily_pm,
-#                      interval = "year",
-#                      start.date = "2013-01-01",
-#                      end.date = "2022-12-31",
-#                      type = "StationName",
-#                      data.thresh = 75)
-# 
-# df_daily_pm |> 
-#   group_by(year, month) |> 
-#   summarise(PM10_avg = mean(PM10..ug.m3.))
-# 
-# aggregate(`PM10 (ug/m3)` ~ month + year , df_daily_pm , mean )
-# 
-# df_monthly_pm <- df_daily_pm |> 
-#   filter(StationName == "St Albans") |> 
-#   # select(!c(StationName)) |> 
-#   rename(PM10 = `PM10..ug.m3.`) |> 
-#   group_by(year, month) |> 
-#   summarise(date = max(date),
-#             StationName = max(StationName),
-#             PM10 = if(mean(n()/days_per_month*100) > 75) mean(PM10, na.rm = TRUE) else NA)
-```
-
-Now can run the Theil-Sen analysis using the function `openair::TheiSen`
-
-```{r}
+#| fig-width: 20
+#| echo: false
+#| message: false
 
 # PM10 trend analysis
 p_pm10 <- openair::TheilSen(
-  df_daily_pm,
+  df_daily_pm10_clean,
   pollutant = "PM10",
   deseason = TRUE,
   date.format = "%Y",
-  type = "StationName"
+  type = "site",
+  data.thresh = 75,
+  fontsize = 30
   )
 
-# PM2.5 trend analysis
+```
 
-p_pm25 <- openair::TheilSen(
-  df_daily_pm,
-  pollutant = "PM25",
-  deseason = TRUE,
-  date.format = "%Y",
-  type = "StationName"
-  )
+:::
+
+
+Now can run the Theil-Sen analysis using the function `TheiSen` from the [openair]{.pkg}
+
+```{r}
+# 
+# # PM10 trend analysis
+# p_pm10 <- openair::TheilSen(
+#   df_daily_pm,
+#   pollutant = "PM10",
+#   deseason = TRUE,
+#   date.format = "%Y",
+#   type = "site"
+#   )
+# 
+# # PM2.5 trend analysis
+# 
+# p_pm25 <- openair::TheilSen(
+#   df_daily_pm,
+#   pollutant = "PM25",
+#   deseason = TRUE,
+#   date.format = "%Y",
+#   type = "site"
+#   )
 
 ```
 
@@ -365,137 +316,87 @@ df_csv <- read.csv(
     date = DateTime,
     PM10 = PM10..ug.m3.,
     PM2.5 = PM2.5..ug.m3.
-  ) |> 
+  ) |>
   mutate(date = lubridate::dmy(date))
 
 p_csv <- openair::TheilSen(
   df_csv,
   pollutant = "PM10",
   deseason = TRUE,
-  date.format = "%Y"
+  date.format = "%Y",
+  data.thresh = 75
 )
-
-
+# 
 
 ```
 
-```{r}
-
-# Checks between data file and auto request
-# 
-# lm(df_csv$PM10~df_daily_pm$PM10)
-# 
-# length(df_csv$PM10)
-# length(filter(df_daily_pm, StationName == "Rangiora")$PM10)
-# 
-# # plot(
-# #   x = df_csv$PM10,
-# #   y = filter(df_daily_pm, StationName == "Rangiora")$PM10,
-# #   col = "blue",
-# #   pch = 18
-# # )
-# 
-# csv <- df_csv$PM10
-# web <- filter(df_daily_pm, StationName == "Rangiora")$PM10
-# date_csv <- df_csv$date
-# date_web <- filter(df_daily_pm, StationName == "Rangiora")$date
-# 
-# df_new <- data.frame(date_csv, date_web, csv,web) |> 
-#   mutate(
-#     diff = csv - web
-#   ) |> 
-#   filter(diff != 0) |> 
-#   print()
-# 
-
-
-```
-
-::: {.callout-note}
-
-There is a behaviour in R where the rounding is to the nearest even digit. This means there can be some differences in R when getting longer data in and rounding versus rounding in excel or somewhere else. More explanation [here](https://stackoverflow.com/questions/12688717/round-up-from-5)
-
-```
-round2 <- function(x, digits = 0) {  # Function to always round 0.5 up
-  posneg <- sign(x)
-  z <- abs(x) * 10^digits
-  z <- z + 0.5
-  z <- trunc(z)
-  z <- z / 10^digits
-  z * posneg
-}
-
-```
-
-
-
-:::
 
 ## Generate time series data to test Theil-Sen function
 
 ```{r}
 
-from_date2 <- lubridate::dmy(from_date)
-to_date2 <- lubridate::dmy(to_date)
-
-freq <- 1/365   # Not sure how to deal with leap years?
-
-x_days <- seq(from_date2, to_date2, by = "days")
-
-x <- seq(1, length(x_days))
-y <- -10 * (sin(x * freq * 2 * pi + 0.5 / freq * pi) - 2) + -0.005 * x + 50
-
-zoo_object_test <- data.frame(x_days,y) |> 
-  rename(date = x_days) |> 
-  mutate(
-    year = lubridate::year(date),
-    month = lubridate::month(date),
-    day = lubridate::day(date),
-    days_in_month = lubridate::days_in_month(month)
-  ) |> 
-  mutate(
-    # Second case when missing a whole year of data
-    y2 = case_when(
-      year == 2018 ~ NA_real_,
-      TRUE ~ y
-      ),
-    # Third case when missing the whole winter for 4 years of the dataset
-    y3 = case_when(
-      year %in% c(2015, 2017, 2019, 2021) & month %in% c(5, 6, 7, 8, 9) ~ NA_real_,
-      TRUE ~ y
-    ),
-    # Placeholder case where 1 day is missing from each month
-    y4 = case_when(
-      day %in% c(1) ~ NA_real_,
-      TRUE ~ y
-    )
-    )
-
-
-# y2 - case where 1 year is missing 6 months of data
-# zoo_object_test$y2[(zoo_object_test$year == 2018)] <- NA
-
-plot(zoo_object_test$date, zoo_object_test$y3, col = "red")
-
-# zoo_object_test$y[zoo_object_test$day < 5] <- NA   # First 4 days of every month missing
-zoo_object_test |> 
-  group_by(year, month) |> 
-  summarise(
-    mean_y = mean(y3, na.rm = TRUE),
-    `valid_%` = round(sum((!is.na(y3)) / days_in_month) * 100, 1),
-    days_in_month_total = mean(days_in_month)
-) |> 
-  print()
-
-
-plot(zoo_object_test$date, zoo_object_test$y2)
-
-zoo_object_test |> 
-  openair::TheilSen(
-    pollutant = "y",
-    deseason = FALSE,
-    date.format = "%Y"
-  )
+# 
+# from_date2 <- lubridate::dmy(from_date)
+# to_date2 <- lubridate::dmy(to_date)
+# 
+# freq <- 1/365   # Not sure how to deal with leap years?
+# 
+# x_days <- seq(from_date2, to_date2, by = "days")
+# 
+# x <- seq(1, length(x_days))
+# y <- -10 * (sin(x * freq * 2 * pi + 0.5 / freq * pi) - 2) + -0.005 * x + 50
+# 
+# zoo_object_test <- data.frame(x_days,y) |> 
+#   rename(date = x_days) |> 
+#   mutate(
+#     year = lubridate::year(date),
+#     month = lubridate::month(date),
+#     day = lubridate::day(date),
+#     days_in_month = lubridate::days_in_month(month)
+#   ) |> 
+#   mutate(
+#     # Second case when missing a whole year of data
+#     y2 = case_when(
+#       year == 2018 ~ NA_real_,
+#       TRUE ~ y
+#       ),
+#     # Third case when missing the whole winter for 4 years of the dataset
+#     y3 = case_when(
+#       year %in% c(2015, 2017, 2019, 2021) & month %in% c(5, 6, 7, 8, 9) ~ NA_real_,
+#       TRUE ~ y
+#     ),
+#     # Placeholder case where 1 day is missing from each month
+#     y4 = case_when(
+#       day %in% c(1) ~ NA_real_,
+#       TRUE ~ y
+#     )
+#     )
+# 
+# 
+# # y2 - case where 1 year is missing 6 months of data
+# # zoo_object_test$y2[(zoo_object_test$year == 2018)] <- NA
+# 
+# plot(zoo_object_test$date, zoo_object_test$y3, col = "red")
+# 
+# # zoo_object_test$y[zoo_object_test$day < 5] <- NA   # First 4 days of every month missing
+# zoo_object_test |> 
+#   group_by(year, month) |> 
+#   summarise(
+#     mean_y = mean(y3, na.rm = TRUE),
+#     `valid_%` = round(sum((!is.na(y3)) / days_in_month) * 100, 1),
+#     days_in_month_total = mean(days_in_month)
+# ) |> 
+#   print()
+# 
+# 
+# plot(zoo_object_test$date, zoo_object_test$y2)
+# 
+# zoo_object_test |> 
+#   openair::TheilSen(
+#     pollutant = "y",
+#     deseason = FALSE,
+#     date.format = "%Y"
+#   )
 
 
 
