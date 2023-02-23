@@ -2,6 +2,8 @@
 title: "ECAN PM trend analysis"
 author: "Ben Scott"
 date: "`r Sys.Date()`"
+repo-url: "https://github.com/bws200/theil-sen-trend-analysis-ecan"
+repo-actions: [edit]
 format:
   html:
     self-contained: true
@@ -26,24 +28,28 @@ round2 <- function(x, digits = 0) {
 
 ```
 
-An rmarkdown document detailing steps to calculate 10 year trends calculated using Environment Canterbury data.
+## Introduction
 
-This is a working document and will update and change. The steps shown are from getting data through the whole analysis. It's easiest to do the whole retrieve and analyse data here as each data set has its own quirks.
+This is an rmarkdown document showing how to calculate 10 year trends calculated using Environment Canterbury data. This is a working document and will update and change.
 
-## Method 1 - using method 98 on data.ecan.govt.nz [link](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data) DAILY
+The steps shown are from getting data, cleaning the data (with some decisions on analysis) and finally running the trend calculation. The trends are calculated using the `TheilSen` function from the [openair]{.pkg} package.
 
-This method uses a stored procedure to retrieve daily averages from the [ecan website](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data) calculated by and stored within the Envista database. The equivalent table is `dbo.Alldaily.`
+## Data retrieval
 
-The stored procedure `pAir_MonDailyAllParams` takes care of this and outputs data via the website. For here we can just use the website which retrieves the data in `.csv` format. The inputs are a start and end date and a station. This can be automated to request data for each station between dates. The dates of interest are for the previous 10 years
+This method uses a stored procedure (`pAir_MonDailyAllParams`) to retrieve $daily averages$ from the [ecan website](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data). The averages are calculated by a stored procedure `dbo.XXsomethingXX` and stored within the Envista database. The relevant table in the Envista database is `dbo.Alldaily.`
+
+For this document we can just use the website to retrieve the data in `.csv` format. The inputs are a start date, end date and a station. The dates of interest are for the previous 10 years.
 
 ```{r}
-
 from_date <- "01/01/2013"
-to_date <- "31/12/2015"
-
+to_date <- "31/12/2022"
 ```
 
-The first steps are some setup work for values to get and addresses etc.
+Need to get a list of all stations available via the website.
+
+::: callout-note
+Not all stations will have data available but this is taken care of later by ignoring the return if the httr request returns an http error.
+:::
 
 ```{r}
 
@@ -60,9 +66,9 @@ station_id_list <- content(
   ) |>
   # Convert to data frame
   data.frame() |>  
-  mutate(LatestDateTime = lubridate::dmy_hms(LatestDateTime)) |>
-  # Makes sure date is ok and ignores station if there is no data available
-  filter(LatestDateTime >= lubridate::dmy(from_date))   
+  mutate(LatestDateTime = lubridate::dmy_hms(LatestDateTime))
+
+
 
 # This is the base URL we want to use before adding parameters
 base_url = "https://data.ecan.govt.nz:443/data/98/Air/Air%20quality%20data%20for%20a%20monitored%20site%20(daily)/CSV?"
@@ -73,7 +79,7 @@ to_date_url <- stringr::str_replace_all(to_date,"/","%2F")
 
 ```
 
-Now can make a request in a loop for all the stations available
+Now can make the actual request in a loop to retrieve data for all stations which have available data.
 
 ```{r}
 
@@ -96,8 +102,8 @@ for (ii in station_id_list$SiteNo) {
   # Send URL request message
   response <- httr::GET(URL_request)
   
-  # Stop if response code is an error. Could include other codes in future
-  if (response$status_code == 500) {
+  # Stop if response code is not OK. Could include other codes in future
+  if (response$status_code != 200) {
     next
   }
 
@@ -143,7 +149,9 @@ df_final_long = do.call(rbind, datalist)
 options(pillar.sigfig = 7)
 ```
 
-Now need to get the data ready for TheilSen analysis
+## Data cleaning and decisions
+
+Now need to get the data in a better state for TheilSen analysis. First some reformatting and renaming.
 
 ```{r}
 # Reformat data
@@ -168,6 +176,11 @@ df_daily_pm <- df_final_long |>
     days_per_month = lubridate::days_in_month(date)
     )
 
+```
+
+Now we combine some stations. This is not best practice but collocations were carried out at these sites.
+
+```{r}
 # Rename stations to combine them - NOT best practice
 df_daily_pm$site <- recode(
   df_daily_pm$site,
@@ -178,34 +191,41 @@ df_daily_pm$site <- recode(
 
 ```
 
-Before doing the trend estimate it is a good idea to plot the data to check for holes. The [openair]{.pkg} function `summaryPlot` is handy for this
+Before doing the trend estimate it is a good idea to plot the data to check for holes. The [openair]{.pkg} function `summaryPlot` is handy for this. First we can make the plot for PM~10~.
 
 ```{r}
 #| column: page
 #| fig-width: 20
 #| fig-height: 30
 
-df_daily_pm |>
-  select(!PM25) |> 
-  group_by(site, year, month) |>
-  summarise(n = n()/mean(days_per_month) * 100) |> 
-  filter(n < 75)
+test_data <- select(df_daily_pm, c("date", "site", "PM10")) |> 
+  # For some reason this displays the correct data capture %
+  mutate(date = as.character(date))
+  
+  # If mutate(date = as.Date(date)) or mutate(date = lubridate::ymd(date)) is used the data capture shows 50%. Not sure why yet
 
 openair::summaryPlot(
-  mydata = select(df_daily_pm, c("date", "site", "PM10", "PM25")),
+  mydata = test_data,
   pollutant = c("PM10"),
   fontsize = 30
-)
 
-openair::summaryPlot(
-  mydata = select(df_daily_pm, c("date", "site", "PM10", "PM25")),
-  pollutant = c("PM25"),
-  fontsize = 30
 )
 
 ```
 
-No trend should be calculated for Washdyke as the site has been changed so we can remove those stations from the data set.
+For here, PM~2.5~ will not be looked at but it could be easily done in future. There would need to be some more decisions as there is less PM~2.5~ data available than there is PM~10~.
+
+Can also produce a small summary table to identify % availability of data for each site and if it is less than a certain percentage.
+
+```{r}
+df_daily_pm |>
+  select(!PM25) |>
+  group_by(site, year, month) |>
+  summarise(n = n()/mean(days_per_month) * 100) |>
+  filter(n < 75)
+```
+
+No trend should be calculated for Washdyke as the site has been changed and there has been a significant change in concentrations and occurrence of exceedances so we can remove those Washdyke stations from the data set.
 
 ```{r}
 # Create PM10 dataset without Washdyke
@@ -217,52 +237,41 @@ df_daily_pm_no_washdyke <- df_daily_pm |>
   # Create dummy variable for removing data later
   mutate(dummy = paste0(site,month,year))
 
-# Create a check dataframe which shows 
+```
+
+```{r}
+# Create a check dataframe to use later for filtering out invalid data 
 df_check <- df_daily_pm_no_washdyke |> 
   group_by(site, year, month) |>
-  count(Logic = !is.na(PM10)) |> 
-  filter(Logic == FALSE & n >= 7) |>  # 7 days in a month missing at most
+  # Find na values
+  count(Logic = !is.na(PM10)) |>
+  # 7 days in a month missing at most
+  filter(Logic == FALSE & n >= 7) |> 
   # Create dummy variable
   mutate(dummy2 = paste0(site, month, year)) 
 
-# 
-# openair::summaryPlot(
-#   mydata = filter(
-#     df_daily_pm_no_washdyke,
-#     !(dummy %in% df_check$dummy2)),
-#   fontsize = 30
-# )
-
 ```
 
-This suggests that all remaining sites are OK, other than St Albans data. Based on the trend information sheet, recent data should be discarded and trends calculated from the period prior to 2020-11. The site was shut down then 2020-11-11 so that will be the end date.
+This suggests that all remaining sites are OK, other than St Albans data. Based on the [trend information sheet](XX%20link%20XX), recent data should be discarded and trends calculated from the period prior to around 2020-11. The site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans
 
 ```{r}
-#| column: page
-#| fig-width: 20
-#| fig-height: 30
 
 df_daily_pm10_clean <- df_daily_pm_no_washdyke |>
   # Remove St Albans data prior to this date due to site movement
   filter(!(date > as.Date("2020-11-11") & site == "St Albans"))
 
-# Summary plot
-openair::summaryPlot(
-  mydata = filter(
-    df_daily_pm10_clean,
-    !(dummy %in% df_check$dummy2)),
-  fontsize = 30
-)
-
-
 ```
 
-So now can run the Theil-Sen analysis
+## TheilSen analysis
+
+So now we can run the TheilSen trend analysis on the PM~10~ dataset
 
 ```{r}
+#| column: page
 #| fig-width: 20
-#| echo: false
+#| fig-height: 20
 #| message: false
+#| warning: false
 
 # PM10 trend analysis
 p_pm10 <- openair::TheilSen(
@@ -271,69 +280,59 @@ p_pm10 <- openair::TheilSen(
   deseason = TRUE,
   date.format = "%Y",
   type = "site",
-  data.thresh = 75,
+  data.thresh = 75, 
   fontsize = 30
   )
 
 ```
 
+## Trend analysis using `.csv` file
+
+We can also run the same analysis using data retrieved from a .csv file. This is handy for comparison.
+
+::: callout-note
+Note the dataset dates need to match if comparing .csv read and retrievals from the website
 :::
 
+### Get the data
 
-Now can run the Theil-Sen analysis using the function `TheiSen` from the [openair]{.pkg}
-
-```{r}
-# 
-# # PM10 trend analysis
-# p_pm10 <- openair::TheilSen(
-#   df_daily_pm,
-#   pollutant = "PM10",
-#   deseason = TRUE,
-#   date.format = "%Y",
-#   type = "site"
-#   )
-# 
-# # PM2.5 trend analysis
-# 
-# p_pm25 <- openair::TheilSen(
-#   df_daily_pm,
-#   pollutant = "PM25",
-#   deseason = TRUE,
-#   date.format = "%Y",
-#   type = "site"
-#   )
-
-```
-
-## Method 2 - retrieve data from a .csv file
+This assumes the data has been prepared in a .csv file which is included in this repo. It is for Ecan's Rangiora site only.
 
 ```{r}
-
+# Read file
 df_csv <- read.csv(
   file = "data/Rangiora PM10 2013 to 2022.csv"
 ) |>
   rename(
     date = DateTime,
     PM10 = PM10..ug.m3.,
-    PM2.5 = PM2.5..ug.m3.
+    PM25 = PM2.5..ug.m3.
   ) |>
   mutate(date = lubridate::dmy(date))
 
-p_csv <- openair::TheilSen(
+df_csv_summary <- df_csv |> 
+  select(c("date", "PM10")) |> 
+  mutate(date = as.character(date))
+
+openair::summaryPlot(
+  mydata = df_csv_summary
+)
+
+# Run the trend analysis
+openair::TheilSen(
   df_csv,
   pollutant = "PM10",
   deseason = TRUE,
   date.format = "%Y",
   data.thresh = 75
 )
-# 
 
 ```
 
-
-## Generate time series data to test Theil-Sen function
+There is some bug with the `summaryPlot` function where %'s should be 100% and are displaying as 50%. Converting the date field to character using as.character() seems to be a temporary fix for now.
 
 ```{r}
+#| echo: false
 
 # 
 # from_date2 <- lubridate::dmy(from_date)
@@ -398,11 +397,4 @@ p_csv <- openair::TheilSen(
 #     date.format = "%Y"
 #   )
 
-
-
 ```
-
-
-
-
-
