@@ -6,6 +6,7 @@ format:
   html:
     self-contained: true
     toc: true
+code-fold: true
 ---
 
 ```{r setup, include=FALSE}
@@ -158,7 +159,7 @@ options(pillar.sigfig = 7)
 
 ## Data cleaning and decisions
 
-Now need to get the data in a better state for TheilSen analysis. First some reformatting and renaming.
+Now need to get the data in a better state for Theil-Sen analysis. First some reformatting and renaming.
 
 ```{r}
 # Reformat data
@@ -194,20 +195,31 @@ Before doing the trend estimate it is a good idea to plot the data to check for 
 #| fig-height: 30
 
 # PM10
-select(df_daily_pm, c("date", "site", "PM10")) |> 
+p_sum_pm10 <- select(df_daily_pm, c("date", "site", "PM10")) |> 
   # Treat date as.character to make % data capture work for summaryPlot
   mutate(date = as.character(date)) |>
   openair::summaryPlot(
     pollutant = "PM10",
+    type = "site",
     fontsize = 30
   )
 
+```
+
+And PM~2.5~
+
+```{r}
+#| column: page
+#| fig-width: 20
+#| fig-height: 30
+
 # PM2.5
-select(df_daily_pm, c("date", "site", "PM25")) |> 
+p_sum_pm25 <- select(df_daily_pm, c("date", "site", "PM25")) |> 
   # Treat date as.character to make % data capture work for summaryPlot
   mutate(date = as.character(date)) |>
   openair::summaryPlot(
     pollutant = "PM25",
+    type = "site",
     fontsize = 30
   )
 
@@ -250,7 +262,6 @@ p_pm10 <- openair::TheilSen(
   data.thresh = 75,
   fontsize = 30
   )
-
 
 p_pm25 <- openair::TheilSen(
   df_daily_pm,
