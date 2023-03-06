@@ -2,8 +2,6 @@
 title: "ECAN PM trend analysis"
 author: "Ben Scott"
 date: "`r Sys.Date()`"
-repo-url: "https://github.com/bws200/theil-sen-trend-analysis-ecan"
-repo-actions: [edit]
 format:
   html:
     self-contained: true
@@ -43,6 +41,16 @@ For this document we can just use the website to retrieve the data in `.csv` for
 ```{r}
 from_date <- "01/01/2013"
 to_date <- "31/12/2022"
+
+# Number of full years check
+diff_weeks <- as.numeric(difftime(
+  time2 = lubridate::dmy(from_date),
+  time1 = lubridate::dmy(to_date),
+  units = "weeks"
+  ))
+
+round2(diff_weeks / 52.1429, 1)
+
 ```
 
 Need to get a list of all stations available via the website.
@@ -67,8 +75,6 @@ station_id_list <- content(
   # Convert to data frame
   data.frame() |>  
   mutate(LatestDateTime = lubridate::dmy_hms(LatestDateTime))
-
-
 
 # This is the base URL we want to use before adding parameters
 base_url = "https://data.ecan.govt.nz:443/data/98/Air/Air%20quality%20data%20for%20a%20monitored%20site%20(daily)/CSV?"
@@ -198,18 +204,13 @@ Before doing the trend estimate it is a good idea to plot the data to check for 
 #| fig-width: 20
 #| fig-height: 30
 
-test_data <- select(df_daily_pm, c("date", "site", "PM10")) |> 
-  # For some reason this displays the correct data capture %
-  mutate(date = as.character(date))
-  
-  # If mutate(date = as.Date(date)) or mutate(date = lubridate::ymd(date)) is used the data capture shows 50%. Not sure why yet
-
-openair::summaryPlot(
-  mydata = test_data,
-  pollutant = c("PM10"),
-  fontsize = 30
-
-)
+select(df_daily_pm, c("date", "site", "PM10")) |> 
+  # Treat date as.character to make % data capture work for summaryPlot
+  mutate(date = as.character(date)) |>
+  openair::summaryPlot(
+  select(df_daily_pm, c("date", "site", "PM10"))
+  # pollutant = c("PM10"),
+  )
 
 ```
 
@@ -252,7 +253,7 @@ df_check <- df_daily_pm_no_washdyke |>
 
 ```
 
-This suggests that all remaining sites are OK, other than St Albans data. Based on the [trend information sheet](XX%20link%20XX), recent data should be discarded and trends calculated from the period prior to around 2020-11. The site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans
+This suggests that all remaining sites are OK, other than St Albans data. Based on the [trend information sheet](XX%20link%20XX), recent data should be discarded and trends calculated from the period prior to around 2020-11. The site was shut down on 2020-11-11 so that will be the end dat for this trend analysis for St Albans
 
 ```{r}
 
@@ -267,7 +268,6 @@ df_daily_pm10_clean <- df_daily_pm_no_washdyke |>
 So now we can run the TheilSen trend analysis on the PM~10~ dataset
 
 ```{r}
-#| column: page
 #| fig-width: 20
 #| fig-height: 20
 #| message: false
@@ -280,7 +280,7 @@ p_pm10 <- openair::TheilSen(
   deseason = TRUE,
   date.format = "%Y",
   type = "site",
-  data.thresh = 75, 
+  data.thresh = 75,
   fontsize = 30
   )
 
@@ -310,13 +310,12 @@ df_csv <- read.csv(
   ) |>
   mutate(date = lubridate::dmy(date))
 
-df_csv_summary <- df_csv |> 
-  select(c("date", "PM10")) |> 
-  mutate(date = as.character(date))
-
-openair::summaryPlot(
-  mydata = df_csv_summary
-)
+df_csv |> 
+  # Add as.character to make data %'s work ok
+  mutate(date = as.character(date)) |> 
+  openair::summaryPlot(
+    pollutant = "PM10"
+  )
 
 # Run the trend analysis
 openair::TheilSen(
@@ -327,12 +326,14 @@ openair::TheilSen(
   data.thresh = 75
 )
 
+df_csv
+# 
+
 ```
 
-There is some bug with the `summaryPlot` function where %'s should be 100% and are displaying as 50%. Converting the date field to character using as.character() seems to be a temporary fix for now.
+## Generate time series data to test Theil-Sen function
 
 ```{r}
-#| echo: false
 
 # 
 # from_date2 <- lubridate::dmy(from_date)
@@ -397,4 +398,65 @@ There is some bug with the `summaryPlot` function where %'s should be 100% and a
 #     date.format = "%Y"
 #   )
 
+
+
 ```
+
+
+```{r}
+
+mydata <- select(df_daily_pm, c("date", "site", "PM10"))
+
+pollutant = "PM10"
+## the data here ar ein "long" format, so make it "wide" and treat it like
+## the usual data frame
+if (length(unique(mydata$site)) > 1) {
+  ## get rid of unused factor levels if subset previously used
+  mydata$site <- factor(mydata$site)
+  ## id of first numeric column (pollutant)
+  id <- which(sapply(mydata, class) %in% c("numeric", "integer"))[1]
+  if (missing(pollutant)) pollutant <- names(mydata)[id]
+  
+  if (pollutant %in% names(mydata) == FALSE) {
+    stop(cat("Can't find the variable", pollutant, "\n"))
+  }
+  
+  mydata <- subset(mydata, select = c("date", "site", pollutant))
+  names(mydata) <- c("date", "variable", "value")
+  
+  
+  mydata <- tidyr::spread(mydata,
+                          key = variable, value = value)
+  
+  warning(paste("More than one site detected, using", pollutant))
+}
+period = "years"
+value <- mydata$Ashburton
+mis.dat <- sum(is.na(value))
+mis.per <- round2(100 * mis.dat / nrow(mydata), 1)
+min.dat <- round2(min(value, na.rm = TRUE), 1)
+max.dat <- round2(max(value, na.rm = TRUE), 1)
+mean.dat <- round2(mean(value, na.rm = TRUE), 1)
+median.dat <- round2(median(value, na.rm = TRUE), 1)
+percentile <- round2(quantile(value, probs = 0.95, na.rm = TRUE), 1)
+
+if (period == "years") format.t <- "%Y"
+if (period == "months") format.t <- "%Y-%m"
+if (period == "days") format.t <- "%Y-%m-%d"
+
+data.cap <- round2(tapply(
+  value, list(year = format(mydata$date, format.t)),
+  function(x) 100 * length(na.omit(x)) / length(x)
+), 1)
+res <- list(results = c(
+  mis.dat, mis.per, min.dat, max.dat, mean.dat, median.dat,
+  percentile
+), data.cap = data.cap)
+
+
+res
+
+
+
+```
+
