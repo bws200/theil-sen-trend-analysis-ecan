@@ -163,6 +163,7 @@ Now need to get the data in a better state for TheilSen analysis. First some ref
 ```{r}
 # Reformat data
 df_daily_pm <- df_final_long |>
+  # Select only PM10 and PM2.5
   filter(name %in% c("PM10ugm3", "PM25ugm3")) |>
   # Reformat to wide
   pivot_wider(
@@ -185,89 +186,53 @@ df_daily_pm <- df_final_long |>
 
 ```
 
-Now we combine some stations. This is not best practice but collocations were carried out at these sites.
-
-```{r}
-# Rename stations to combine them - NOT best practice
-df_daily_pm$site <- recode(
-  df_daily_pm$site,
-  "St Albans EP" = "St Albans",
-  "Waimate Kennedy" = "Waimate",
-  "Waimate Stadium" = "Waimate"
-  )
-
-```
-
-Before doing the trend estimate it is a good idea to plot the data to check for holes. The [openair]{.pkg} function `summaryPlot` is handy for this. First we can make the plot for PM~10~.
+Before doing the trend estimate it is a good idea to plot the data to check for holes. The [openair]{.pkg} function `summaryPlot` is handy for this.
 
 ```{r}
 #| column: page
 #| fig-width: 20
 #| fig-height: 30
 
+# PM10
 select(df_daily_pm, c("date", "site", "PM10")) |> 
   # Treat date as.character to make % data capture work for summaryPlot
   mutate(date = as.character(date)) |>
   openair::summaryPlot(
-    select(df_daily_pm, c("date", "site", "PM10")),
+    pollutant = "PM10",
     fontsize = 30
-    # pollutant = c("PM10"),
   )
 
+# PM2.5
+select(df_daily_pm, c("date", "site", "PM25")) |> 
+  # Treat date as.character to make % data capture work for summaryPlot
+  mutate(date = as.character(date)) |>
+  openair::summaryPlot(
+    pollutant = "PM25",
+    fontsize = 30
+  )
+
+
 ```
+The  summary plots show some decisions need to be made as to which sites to include and which periods should be used. The selection of periods are based on the [trend information sheet](https://boplass2.sharepoint.com/:w:/r/sites/NationalAirQualityGrp/_layouts/15/Doc.aspx?sourcedoc=%7BCD47641A-F0E7-420C-B974-40EF61C84B4D%7D&file=LAWA%20air%20quality%20trends%20guidance%2013022022.docx&_DSL=1&action=default&mobileredirect=true). The big decision point is that recent data should be discarded and trends calculated from the period prior if there are large holes (> 5 months) in the data.
 
-For here, PM~2.5~ will not be looked at but it could be easily done in future. There would need to be some more decisions as there is less PM~2.5~ data available than there is PM~10~.
+The following is a list of the decisions made. The code should reflect these decisions as well.
 
-Can also produce a small summary table to identify % availability of data for each site and if it is less than a certain percentage.
+- No trend should be calculated for Washdyke as the site has been changed and there has been a significant change in concentrations and occurrence of exceedances so we can remove those Washdyke stations from the data set.
+- For St Albans, the site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans.
 
 ```{r}
-df_daily_pm |>
-  select(!PM25) |>
-  group_by(site, year, month) |>
-  summarise(n = n()/mean(days_per_month) * 100) |>
-  filter(n < 75)
-```
 
-No trend should be calculated for Washdyke as the site has been changed and there has been a significant change in concentrations and occurrence of exceedances so we can remove those Washdyke stations from the data set.
-
-```{r}
-# Create PM10 dataset without Washdyke
-df_daily_pm_no_washdyke <- df_daily_pm |>
+df_daily_pm10_clean <- df_daily_pm |>
   # Remove Washdyke sites
   filter(!(site %in% c("Washdyke Alpine", "Washdyke Flat Road"))) |> 
-  # Remove PM2.5
-  select(!c(PM25)) |>
-  # Create dummy variable for removing data later
-  mutate(dummy = paste0(site,month,year))
-
-```
-
-```{r}
-# Create a check dataframe to use later for filtering out invalid data 
-df_check <- df_daily_pm_no_washdyke |> 
-  group_by(site, year, month) |>
-  # Find na values
-  count(Logic = !is.na(PM10)) |>
-  # 7 days in a month missing at most
-  filter(Logic == FALSE & n >= 7) |> 
-  # Create dummy variable
-  mutate(dummy2 = paste0(site, month, year)) 
-
-```
-
-This suggests that all remaining sites are OK, other than St Albans data. Based on the [trend information sheet](XX%20link%20XX), recent data should be discarded and trends calculated from the period prior to around 2020-11. The site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans.
-
-```{r}
-
-df_daily_pm10_clean <- df_daily_pm_no_washdyke |>
   # Remove St Albans data prior to this date due to site movement
   filter(!(date > as.Date("2020-11-11") & site == "St Albans"))
 
 ```
 
-## TheilSen analysis
+## Theil-Sen analysis
 
-So now we can run the TheilSen trend analysis on the PM~10~ dataset
+So now we can run the Theil-Sen trend analysis on the PM~10~ and PM~2.5~ datasets
 
 ```{r}
 #| fig-width: 20
@@ -279,6 +244,17 @@ So now we can run the TheilSen trend analysis on the PM~10~ dataset
 p_pm10 <- openair::TheilSen(
   df_daily_pm10_clean,
   pollutant = "PM10",
+  deseason = TRUE,
+  date.format = "%Y",
+  type = "site",
+  data.thresh = 75,
+  fontsize = 30
+  )
+
+
+p_pm25 <- openair::TheilSen(
+  df_daily_pm,
+  pollutant = "PM25",
   deseason = TRUE,
   date.format = "%Y",
   type = "site",
