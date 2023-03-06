@@ -10,7 +10,8 @@ format:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
+library(tidyverse, warn.conflicts = FALSE)
+library(lubridate)
 library(httr)
 library(DBI)
 
@@ -34,22 +35,20 @@ The steps shown are from getting data, cleaning the data (with some decisions on
 
 ## Data retrieval
 
-This method uses a stored procedure (`pAir_MonDailyAllParams`) to retrieve $daily averages$ from the [ecan website](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data). The averages are calculated by a stored procedure `dbo.XXsomethingXX` and stored within the Envista database. The relevant table in the Envista database is `dbo.Alldaily.`
+This method uses a stored procedure (`pAir_MonDailyAllParams`) to retrieve **daily averages** from the [ecan website](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data). The averages are calculated by a stored procedure `dbo.XXsomethingXX` and stored within the Envista database. The relevant table in the Envista database is `dbo.Alldaily.`
 
 For this document we can just use the website to retrieve the data in `.csv` format. The inputs are a start date, end date and a station. The dates of interest are for the previous 10 years.
 
 ```{r}
-from_date <- "01/01/2013"
+from_date <- "1/01/2013"
 to_date <- "31/12/2022"
 
-# Number of full years check
-diff_weeks <- as.numeric(difftime(
-  time2 = lubridate::dmy(from_date),
-  time1 = lubridate::dmy(to_date),
-  units = "weeks"
-  ))
+### Number of full years check
+# Convert type and add a day to account for days between
+to_date_mod <- dmy(to_date) + 1
+from_date_mod <- dmy(from_date)
+time_length(interval(start = from_date_mod, end = to_date_mod), "years")
 
-round2(diff_weeks / 52.1429, 1)
 
 ```
 
@@ -77,7 +76,9 @@ station_id_list <- content(
   mutate(LatestDateTime = lubridate::dmy_hms(LatestDateTime))
 
 # This is the base URL we want to use before adding parameters
-base_url = "https://data.ecan.govt.nz:443/data/98/Air/Air%20quality%20data%20for%20a%20monitored%20site%20(daily)/CSV?"
+url_1 <- "https://data.ecan.govt.nz:443/data/98/Air/"
+url_2 <- "Air%20quality%20data%20for%20a%20monitored%20site%20(daily)/CSV?"
+base_url = paste0(url_1, url_2)
 
 # Get the date into the right format for URL
 from_date_url <- stringr::str_replace_all(from_date,"/","%2F")
@@ -208,8 +209,9 @@ select(df_daily_pm, c("date", "site", "PM10")) |>
   # Treat date as.character to make % data capture work for summaryPlot
   mutate(date = as.character(date)) |>
   openair::summaryPlot(
-  select(df_daily_pm, c("date", "site", "PM10"))
-  # pollutant = c("PM10"),
+    select(df_daily_pm, c("date", "site", "PM10")),
+    fontsize = 30
+    # pollutant = c("PM10"),
   )
 
 ```
@@ -253,7 +255,7 @@ df_check <- df_daily_pm_no_washdyke |>
 
 ```
 
-This suggests that all remaining sites are OK, other than St Albans data. Based on the [trend information sheet](XX%20link%20XX), recent data should be discarded and trends calculated from the period prior to around 2020-11. The site was shut down on 2020-11-11 so that will be the end dat for this trend analysis for St Albans
+This suggests that all remaining sites are OK, other than St Albans data. Based on the [trend information sheet](XX%20link%20XX), recent data should be discarded and trends calculated from the period prior to around 2020-11. The site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans.
 
 ```{r}
 
@@ -296,7 +298,7 @@ Note the dataset dates need to match if comparing .csv read and retrievals from 
 
 ### Get the data
 
-This assumes the data has been prepared in a .csv file which is included in this repo. It is for Ecan's Rangiora site only.
+This assumes the data has been prepared in a .csv file which is included in this [GitHub](https://github.com/bws200/theil-sen-trend-analysis-ecan) repository under `/data`. It is for Environment Canterbury's Rangiora site only. A larger .csv file could be created which includes site name as an additional column.
 
 ```{r}
 # Read file
@@ -317,6 +319,8 @@ df_csv |>
     pollutant = "PM10"
   )
 
+head(df_csv)
+
 # Run the trend analysis
 openair::TheilSen(
   df_csv,
@@ -325,137 +329,6 @@ openair::TheilSen(
   date.format = "%Y",
   data.thresh = 75
 )
-
-df_csv
-# 
-
-```
-
-## Generate time series data to test Theil-Sen function
-
-```{r}
-
-# 
-# from_date2 <- lubridate::dmy(from_date)
-# to_date2 <- lubridate::dmy(to_date)
-# 
-# freq <- 1/365   # Not sure how to deal with leap years?
-# 
-# x_days <- seq(from_date2, to_date2, by = "days")
-# 
-# x <- seq(1, length(x_days))
-# y <- -10 * (sin(x * freq * 2 * pi + 0.5 / freq * pi) - 2) + -0.005 * x + 50
-# 
-# zoo_object_test <- data.frame(x_days,y) |> 
-#   rename(date = x_days) |> 
-#   mutate(
-#     year = lubridate::year(date),
-#     month = lubridate::month(date),
-#     day = lubridate::day(date),
-#     days_in_month = lubridate::days_in_month(month)
-#   ) |> 
-#   mutate(
-#     # Second case when missing a whole year of data
-#     y2 = case_when(
-#       year == 2018 ~ NA_real_,
-#       TRUE ~ y
-#       ),
-#     # Third case when missing the whole winter for 4 years of the dataset
-#     y3 = case_when(
-#       year %in% c(2015, 2017, 2019, 2021) & month %in% c(5, 6, 7, 8, 9) ~ NA_real_,
-#       TRUE ~ y
-#     ),
-#     # Placeholder case where 1 day is missing from each month
-#     y4 = case_when(
-#       day %in% c(1) ~ NA_real_,
-#       TRUE ~ y
-#     )
-#     )
-# 
-# 
-# # y2 - case where 1 year is missing 6 months of data
-# # zoo_object_test$y2[(zoo_object_test$year == 2018)] <- NA
-# 
-# plot(zoo_object_test$date, zoo_object_test$y3, col = "red")
-# 
-# # zoo_object_test$y[zoo_object_test$day < 5] <- NA   # First 4 days of every month missing
-# zoo_object_test |> 
-#   group_by(year, month) |> 
-#   summarise(
-#     mean_y = mean(y3, na.rm = TRUE),
-#     `valid_%` = round(sum((!is.na(y3)) / days_in_month) * 100, 1),
-#     days_in_month_total = mean(days_in_month)
-# ) |> 
-#   print()
-# 
-# 
-# plot(zoo_object_test$date, zoo_object_test$y2)
-# 
-# zoo_object_test |> 
-#   openair::TheilSen(
-#     pollutant = "y",
-#     deseason = FALSE,
-#     date.format = "%Y"
-#   )
-
-
-
-```
-
-
-```{r}
-
-mydata <- select(df_daily_pm, c("date", "site", "PM10"))
-
-pollutant = "PM10"
-## the data here ar ein "long" format, so make it "wide" and treat it like
-## the usual data frame
-if (length(unique(mydata$site)) > 1) {
-  ## get rid of unused factor levels if subset previously used
-  mydata$site <- factor(mydata$site)
-  ## id of first numeric column (pollutant)
-  id <- which(sapply(mydata, class) %in% c("numeric", "integer"))[1]
-  if (missing(pollutant)) pollutant <- names(mydata)[id]
-  
-  if (pollutant %in% names(mydata) == FALSE) {
-    stop(cat("Can't find the variable", pollutant, "\n"))
-  }
-  
-  mydata <- subset(mydata, select = c("date", "site", pollutant))
-  names(mydata) <- c("date", "variable", "value")
-  
-  
-  mydata <- tidyr::spread(mydata,
-                          key = variable, value = value)
-  
-  warning(paste("More than one site detected, using", pollutant))
-}
-period = "years"
-value <- mydata$Ashburton
-mis.dat <- sum(is.na(value))
-mis.per <- round2(100 * mis.dat / nrow(mydata), 1)
-min.dat <- round2(min(value, na.rm = TRUE), 1)
-max.dat <- round2(max(value, na.rm = TRUE), 1)
-mean.dat <- round2(mean(value, na.rm = TRUE), 1)
-median.dat <- round2(median(value, na.rm = TRUE), 1)
-percentile <- round2(quantile(value, probs = 0.95, na.rm = TRUE), 1)
-
-if (period == "years") format.t <- "%Y"
-if (period == "months") format.t <- "%Y-%m"
-if (period == "days") format.t <- "%Y-%m-%d"
-
-data.cap <- round2(tapply(
-  value, list(year = format(mydata$date, format.t)),
-  function(x) 100 * length(na.omit(x)) / length(x)
-), 1)
-res <- list(results = c(
-  mis.dat, mis.per, min.dat, max.dat, mean.dat, median.dat,
-  percentile
-), data.cap = data.cap)
-
-
-res
-
 
 
 ```

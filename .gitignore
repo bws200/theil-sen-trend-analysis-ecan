@@ -43,3 +43,11 @@ vignettes/*.pdf
 .Renviron
 
 /.quarto/
+
+.gitignore
+.Rprofile
+*.Rproj
+Generate-data.qmd
+
+/test_summaryPlot
+
