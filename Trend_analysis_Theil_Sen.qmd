@@ -4,8 +4,10 @@ author: "Ben Scott"
 date: "`r Sys.Date()`"
 format:
   html:
+    title: index
     self-contained: true
     toc: true
+    output-file: index.html
 code-fold: true
 ---
 
@@ -234,7 +236,7 @@ The following is a list of the decisions made. The code should reflect these dec
 
 ```{r}
 
-df_daily_pm10_clean <- df_daily_pm |>
+df_daily_pm_clean <- df_daily_pm |>
   # Remove Washdyke sites
   filter(!(site %in% c("Washdyke Alpine", "Washdyke Flat Road"))) |> 
   # Remove St Albans data prior to this date due to site movement
@@ -254,7 +256,7 @@ So now we can run the Theil-Sen trend analysis on the PM~10~ and PM~2.5~ dataset
 
 # PM10 trend analysis
 p_pm10 <- openair::TheilSen(
-  df_daily_pm10_clean,
+  df_daily_pm_clean,
   pollutant = "PM10",
   deseason = TRUE,
   date.format = "%Y",
@@ -264,7 +266,7 @@ p_pm10 <- openair::TheilSen(
   )
 
 p_pm25 <- openair::TheilSen(
-  df_daily_pm,
+  df_daily_pm_clean,
   pollutant = "PM25",
   deseason = TRUE,
   date.format = "%Y",
