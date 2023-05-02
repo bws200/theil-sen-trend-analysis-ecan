@@ -14,7 +14,6 @@ code-fold: true
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse, warn.conflicts = FALSE)
-library(lubridate)
 library(httr)
 library(DBI)
 
