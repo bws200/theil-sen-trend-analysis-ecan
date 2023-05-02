@@ -4,7 +4,6 @@ author: "Ben Scott"
 date: "`r Sys.Date()`"
 format:
   html:
-    title: index
     self-contained: true
     toc: true
     output-file: index.html
