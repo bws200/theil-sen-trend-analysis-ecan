@@ -7,7 +7,7 @@ format:
     self-contained: true
     toc: true
     output-file: index.html
-code-fold: true
+code-fold: false
 ---
 
 ```{r setup, include=FALSE}
@@ -16,17 +16,9 @@ library(tidyverse, warn.conflicts = FALSE)
 library(httr)
 library(DBI)
 
-# Need a function to round like excel e.g. Function to always round 0.5 up
-round2 <- function(x, digits = 0) {
-  posneg <- sign(x)
-  z <- abs(x) * 10^digits
-  z <- z + 0.5
-  z <- trunc(z)
-  z <- z / 10^digits
-  z * posneg
-}
-
 ```
+
+
 
 ## Introduction
 
@@ -87,7 +79,28 @@ to_date_url <- stringr::str_replace_all(to_date,"/","%2F")
 
 ```
 
-Now can make the actual request in a loop to retrieve data for all stations which have available data.
+The standard round function in R doesn't behave like others in excel so another function needs to be added. See [here](https://stackoverflow.com/questions/12688717/round-up-from-5) for more discussion on rounding in R.
+
+```{r}
+# Round 0.5 is expected to round to 1
+round(0.5)
+
+# But instead we need a function to round like excel e.g. Function to always round 0.5 up
+round2 <- function(x, digits = 0) {
+  posneg <- sign(x)
+  z <- abs(x) * 10^digits
+  z <- z + 0.5
+  z <- trunc(z)
+  z <- z / 10^digits
+  z * posneg
+}
+
+# And try again with round2 which should round to 1
+round2(0.5)
+
+```
+
+Now can make the actual request in a loop to retrieve data for all stations which have available data via the ecan website.
 
 ```{r}
 
@@ -249,6 +262,7 @@ So now we can run the Theil-Sen trend analysis on the PM~10~ and PM~2.5~ dataset
 ```{r}
 #| fig-width: 20
 #| fig-height: 20
+#| column: page
 #| message: false
 #| warning: false
 
@@ -263,6 +277,16 @@ p_pm10 <- openair::TheilSen(
   fontsize = 30
   )
 
+```
+
+```{r}
+#| fig-width: 20
+#| fig-height: 20
+#| column: page
+#| message: false
+#| warning: false
+
+# And TheilSen for PM2.5
 p_pm25 <- openair::TheilSen(
   df_daily_pm_clean,
   pollutant = "PM25",
@@ -288,6 +312,8 @@ Note the dataset dates need to match if comparing .csv read and retrievals from 
 This assumes the data has been prepared in a .csv file which is included in this [GitHub](https://github.com/bws200/theil-sen-trend-analysis-ecan) repository under `/data`. It is for Environment Canterbury's Rangiora site only. A larger .csv file could be created which includes site name as an additional column.
 
 ```{r}
+#| column: page
+
 # Read file
 df_csv <- read.csv(
   file = "data/Rangiora PM10 2013 to 2022.csv"
@@ -306,7 +332,14 @@ df_csv |>
     pollutant = "PM10"
   )
 
-head(df_csv)
+```
+
+::: callout-note
+The `.csv` dataset is not complete for 2022
+:::
+
+```{r}
+#| column: page
 
 # Run the trend analysis
 openair::TheilSen(
@@ -317,6 +350,6 @@ openair::TheilSen(
   data.thresh = 75
 )
 
-
 ```
+
 
