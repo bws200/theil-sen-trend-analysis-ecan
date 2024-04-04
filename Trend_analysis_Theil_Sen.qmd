@@ -1,16 +1,19 @@
 ---
-title: "ECAN PM trend analysis"
-author: "Ben Scott"
+author: BenS
 date: "`r Sys.Date()`"
+abstract: "Trend analysis using Environment Cantebrury data"
 format:
   html:
-    self-contained: true
     toc: true
-    output-file: index.html
-code-fold: false
+    toc-location: left
+    self-contained: true
+execute: 
+  warning: false
+  message: false
 ---
 
-```{r setup, include=FALSE}
+```{r setup}
+#| include: false
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse, warn.conflicts = FALSE)
 library(httr)
@@ -18,13 +21,11 @@ library(DBI)
 
 ```
 
-
-
 ## Introduction
 
-This is an rmarkdown document showing how to calculate 10 year trends calculated using Environment Canterbury data. This is a working document and will update and change.
+This is an rmarkdown document showing how to calculate 10 year trends calculated using Environment Canterbury data. This is a working document and likely to update and change.
 
-The steps shown are from getting data, cleaning the data (with some decisions on analysis) and finally running the trend calculation. The trends are calculated using the `TheilSen` function from the [openair]{.pkg} package.
+The steps shown are from getting data, cleaning the data (with some decisions on analysis) and finally running the trend calculation. The trends are calculated using the `TheilSen` function from the `openair` package.
 
 ## Data retrieval
 
@@ -33,8 +34,8 @@ This method uses a stored procedure (`pAir_MonDailyAllParams`) to retrieve **dai
 For this document we can just use the website to retrieve the data in `.csv` format. The inputs are a start date, end date and a station. The dates of interest are for the previous 10 years.
 
 ```{r}
-from_date <- "1/01/2013"
-to_date <- "31/12/2022"
+from_date <- "1/01/2014"
+to_date <- "31/12/2023"
 
 ### Number of full years check
 # Convert type and add a day to account for days between
@@ -98,6 +99,9 @@ round2 <- function(x, digits = 0) {
 # And try again with round2 which should round to 1
 round2(0.5)
 
+# Can also use janitor:: function which implements the same round2 function but without defining it
+janitor::round_half_up(0.5)
+
 ```
 
 Now can make the actual request in a loop to retrieve data for all stations which have available data via the ecan website.
@@ -117,7 +121,7 @@ for (ii in station_id_list$SiteNo) {
     "EndDate=", as.character(to_date_url)
     )   
   
-  # Encode URL strign as URL
+  # Encode URL string as URL
   URL_request <- utils::URLencode(URL_string)   
 
   # Send URL request message
@@ -153,7 +157,7 @@ for (ii in station_id_list$SiteNo) {
     !c(DateTime, StationName)
     ) |> 
     mutate(
-      value = round2(value, 1)
+      value = janitor::round_half_up(value, 1)
     )
 
   # Change date format
@@ -200,10 +204,10 @@ df_daily_pm <- df_final_long |>
 
 ```
 
-Before doing the trend estimate it is a good idea to plot the data to check for holes. The [openair]{.pkg} function `summaryPlot` is handy for this.
+Before doing the trend estimate it is a good idea to plot the data to check for holes with the function `openair::summaryplot`.
 
 ```{r}
-#| column: page
+#| column: page-right
 #| fig-width: 20
 #| fig-height: 30
 
@@ -214,7 +218,7 @@ p_sum_pm10 <- select(df_daily_pm, c("date", "site", "PM10")) |>
   openair::summaryPlot(
     pollutant = "PM10",
     type = "site",
-    fontsize = 30
+    fontsize = 20
   )
 
 ```
@@ -222,7 +226,7 @@ p_sum_pm10 <- select(df_daily_pm, c("date", "site", "PM10")) |>
 And PM~2.5~
 
 ```{r}
-#| column: page
+#| column: page-right
 #| fig-width: 20
 #| fig-height: 30
 
@@ -233,7 +237,7 @@ p_sum_pm25 <- select(df_daily_pm, c("date", "site", "PM25")) |>
   openair::summaryPlot(
     pollutant = "PM25",
     type = "site",
-    fontsize = 30
+    fontsize = 20
   )
 
 
@@ -262,7 +266,7 @@ So now we can run the Theil-Sen trend analysis on the PM~10~ and PM~2.5~ dataset
 ```{r}
 #| fig-width: 20
 #| fig-height: 20
-#| column: page
+#| column: page-right
 #| message: false
 #| warning: false
 
@@ -274,7 +278,7 @@ p_pm10 <- openair::TheilSen(
   date.format = "%Y",
   type = "site",
   data.thresh = 75,
-  fontsize = 30
+  fontsize = 20
   )
 
 ```
@@ -282,7 +286,7 @@ p_pm10 <- openair::TheilSen(
 ```{r}
 #| fig-width: 20
 #| fig-height: 20
-#| column: page
+#| column: page-right
 #| message: false
 #| warning: false
 
@@ -294,10 +298,23 @@ p_pm25 <- openair::TheilSen(
   date.format = "%Y",
   type = "site",
   data.thresh = 75,
-  fontsize = 30
+  fontsize = 20
   )
 
 ```
+
+## Data export
+
+Here the data is exported to show what has been used in the trend analysis calculations for comparison or to reproduce somewhere else without running the data grab from the website
+
+```{r}
+write.csv(
+  pivot_wider(df_final_long, names_from = "name", values_from = "value"),
+  file = paste0("data_export_",Sys.Date() ,".csv")
+  )
+
+```
+
 
 ## Trend analysis using `.csv` file
 
@@ -312,7 +329,7 @@ Note the dataset dates need to match if comparing .csv read and retrievals from 
 This assumes the data has been prepared in a .csv file which is included in this [GitHub](https://github.com/bws200/theil-sen-trend-analysis-ecan) repository under `/data`. It is for Environment Canterbury's Rangiora site only. A larger .csv file could be created which includes site name as an additional column.
 
 ```{r}
-#| column: page
+#| column: page-right
 
 # Read file
 df_csv <- read.csv(
@@ -339,7 +356,7 @@ The `.csv` dataset is not complete for 2022
 :::
 
 ```{r}
-#| column: page
+#| column: page-right
 
 # Run the trend analysis
 openair::TheilSen(
