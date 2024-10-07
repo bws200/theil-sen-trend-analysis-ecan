@@ -1,19 +1,23 @@
 ---
 author: BenS
 date: "`r Sys.Date()`"
-abstract: "Trend analysis using Environment Cantebrury data"
+abstract: "Theil-Sen Trend Analysis Using Environment Cantebrury Data"
 format:
   html:
+    theme:
+      light: flatly
+      dark: darkly
     toc: true
     toc-location: left
     self-contained: true
-execute: 
+execute:
   warning: false
   message: false
 ---
 
-```{r setup}
-#| include: false
+```{r}
+#| label: setup
+
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse, warn.conflicts = FALSE)
 library(httr)
@@ -31,11 +35,13 @@ The steps shown are from getting data, cleaning the data (with some decisions on
 
 This method uses a stored procedure (`pAir_MonDailyAllParams`) to retrieve **daily averages** from the [ecan website](https://data.ecan.govt.nz/Catalogue/Method?MethodId=98#tab-data). The averages are calculated by a stored procedure `dbo.XXsomethingXX` and stored within the Envista database. The relevant table in the Envista database is `dbo.Alldaily.`
 
-For this document we can just use the website to retrieve the data in `.csv` format. The inputs are a start date, end date and a station. The dates of interest are for the previous 10 years.
+For this document we can just use the website to retrieve the data in `.csv` format. The inputs are a start date, end date and a station. The dates of interest here are for a 10 year period.
 
 ```{r}
-from_date <- "1/01/2014"
-to_date <- "31/12/2023"
+#| label: date-setup
+
+from_date <- "1/01/2013"
+to_date <- "7/10/2024"
 
 ### Number of full years check
 # Convert type and add a day to account for days between
@@ -43,16 +49,15 @@ to_date_mod <- dmy(to_date) + 1
 from_date_mod <- dmy(from_date)
 time_length(interval(start = from_date_mod, end = to_date_mod), "years")
 
+# Without the + 1 then the time_length should be less than a whole year
+time_length(interval(start = from_date_mod, end = to_date_mod - 1), "years")
 
 ```
 
-Need to get a list of all stations available via the website.
-
-::: callout-note
-Not all stations will have data available but this is taken care of later by ignoring the return if the httr request returns an http error.
-:::
+Now we need to get a list of all stations available via the website which uses another procedure. Not all stations will have data available but this is taken care of later by ignoring the return if the httr request returns an http error.
 
 ```{r}
+#| label: get-stations
 
 # URL for getting list of available stations
 response_stations <- httr::GET(
@@ -69,6 +74,13 @@ station_id_list <- content(
   data.frame() |>  
   mutate(LatestDateTime = lubridate::dmy_hms(LatestDateTime))
 
+```
+
+Now can continue on with getting the data via the website.
+
+```{r}
+#| label: station-parameters
+
 # This is the base URL we want to use before adding parameters
 url_1 <- "https://data.ecan.govt.nz:443/data/98/Air/"
 url_2 <- "Air%20quality%20data%20for%20a%20monitored%20site%20(daily)/CSV?"
@@ -80,33 +92,12 @@ to_date_url <- stringr::str_replace_all(to_date,"/","%2F")
 
 ```
 
-The standard round function in R doesn't behave like others in excel so another function needs to be added. See [here](https://stackoverflow.com/questions/12688717/round-up-from-5) for more discussion on rounding in R.
 
-```{r}
-# Round 0.5 is expected to round to 1
-round(0.5)
-
-# But instead we need a function to round like excel e.g. Function to always round 0.5 up
-round2 <- function(x, digits = 0) {
-  posneg <- sign(x)
-  z <- abs(x) * 10^digits
-  z <- z + 0.5
-  z <- trunc(z)
-  z <- z / 10^digits
-  z * posneg
-}
-
-# And try again with round2 which should round to 1
-round2(0.5)
-
-# Can also use janitor:: function which implements the same round2 function but without defining it
-janitor::round_half_up(0.5)
-
-```
 
 Now can make the actual request in a loop to retrieve data for all stations which have available data via the ecan website.
 
 ```{r}
+#| label: get-data-all-stations
 
 # Initialise datalist to be populated inside the for loop
 datalist = list()   
@@ -179,6 +170,8 @@ options(pillar.sigfig = 7)
 Now need to get the data in a better state for Theil-Sen analysis. First some reformatting and renaming.
 
 ```{r}
+#| label: data-cleaning
+
 # Reformat data
 df_daily_pm <- df_final_long |>
   # Select only PM10 and PM2.5
@@ -188,7 +181,7 @@ df_daily_pm <- df_final_long |>
     names_from = name,
     values_from = value
     ) |>
-  # date column required by openair
+  # "date" column required by openair
   rename(
     date = DateTime,
     PM10 = PM10ugm3,
@@ -204,9 +197,10 @@ df_daily_pm <- df_final_long |>
 
 ```
 
-Before doing the trend estimate it is a good idea to plot the data to check for holes with the function `openair::summaryplot`.
+Before doing the trend estimate it is a good idea to plot the data to check for holes with the function `openair::summaryPlot()`.
 
 ```{r}
+#| label: pm10-summary-plot
 #| column: page-right
 #| fig-width: 20
 #| fig-height: 30
@@ -226,6 +220,7 @@ p_sum_pm10 <- select(df_daily_pm, c("date", "site", "PM10")) |>
 And PM~2.5~
 
 ```{r}
+#| label: pm25-summary-plot
 #| column: page-right
 #| fig-width: 20
 #| fig-height: 30
@@ -242,7 +237,7 @@ p_sum_pm25 <- select(df_daily_pm, c("date", "site", "PM25")) |>
 
 
 ```
-The  summary plots show some decisions need to be made as to which sites to include and which periods should be used. The selection of periods are based on the [trend information sheet](https://boplass2.sharepoint.com/:w:/r/sites/NationalAirQualityGrp/_layouts/15/Doc.aspx?sourcedoc=%7BCD47641A-F0E7-420C-B974-40EF61C84B4D%7D&file=LAWA%20air%20quality%20trends%20guidance%2013022022.docx&_DSL=1&action=default&mobileredirect=true). The big decision point is that recent data should be discarded and trends calculated from the period prior if there are large holes (> 5 months) in the data.
+The  summary plots show some decisions need to be made as to which sites to include and which periods should be used. The selection of periods are based on the [trend information sheet](https://boplass2.sharepoint.com/:w:/r/sites/NationalAirQualityGrp/_layouts/15/Doc.aspx?sourcedoc=%7BCD47641A-F0E7-420C-B974-40EF61C84B4D%7D&file=LAWA%20air%20quality%20trends%20guidance%2013022022.docx&_DSL=1&action=default&mobileredirect=true). The main decision point is that recent data should be discarded and trends calculated from the period prior if there are large holes (> 5 months) in the data.
 
 The following is a list of the decisions made. The code should reflect these decisions as well.
 
@@ -250,12 +245,17 @@ The following is a list of the decisions made. The code should reflect these dec
 - For St Albans, the site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans.
 
 ```{r}
+#| label: data-additional-decisions
 
 df_daily_pm_clean <- df_daily_pm |>
   # Remove Washdyke sites
   filter(!(site %in% c("Washdyke Alpine", "Washdyke Flat Road"))) |> 
   # Remove St Albans data prior to this date due to site movement
-  filter(!(date > as.Date("2020-11-11") & site == "St Albans"))
+  filter(!(date > as.Date("2020-11-11") & site == "St Albans")) |> 
+  
+  ### Additional filtering steps TESTING - TO DELETE
+  # Testing removing prior to year 2020
+  filter(site == "Rangiora")
 
 ```
 
@@ -264,6 +264,7 @@ df_daily_pm_clean <- df_daily_pm |>
 So now we can run the Theil-Sen trend analysis on the PM~10~ and PM~2.5~ datasets
 
 ```{r}
+#| label: trend-analysis-pm10
 #| fig-width: 20
 #| fig-height: 20
 #| column: page-right
@@ -276,14 +277,15 @@ p_pm10 <- openair::TheilSen(
   pollutant = "PM10",
   deseason = TRUE,
   date.format = "%Y",
-  type = "site",
+  # type = "site",
   data.thresh = 75,
-  fontsize = 20
+  fontsize = 40
   )
 
 ```
 
 ```{r}
+#| label: trend-analysis-pm25
 #| fig-width: 20
 #| fig-height: 20
 #| column: page-right
@@ -298,20 +300,49 @@ p_pm25 <- openair::TheilSen(
   date.format = "%Y",
   type = "site",
   data.thresh = 75,
-  fontsize = 20
+  # alpha = 0.05,
+  fontsize = 40
+  )
+
+df_daily_pm_clean |> 
+  select(c(date, site, PM25)) |> 
+  filter(date >= "2016-01-01") |> 
+  openair::summaryPlot(
+    pollutant = "PM25",
+    type = "site",
+    fontsize = 20)
+
+df_daily_pm_clean |>
+  #Some extra data decisions
+  filter(date >= "2016-01-01") |> 
+  # filter(date <= "2022-01-01") |> 
+  openair::TheilSen(
+    pollutant = "PM25",
+    fontsize = 40,
+    deseason = TRUE,
+    date.format = "%Y"
   )
 
 ```
 
 ## Data export
 
-Here the data is exported to show what has been used in the trend analysis calculations for comparison or to reproduce somewhere else without running the data grab from the website
+Here the data is exported to show what has been used in the trend analysis calculations for comparison or to reproduce somewhere else without running the data grab from the website.
 
 ```{r}
+#| label: data-export
+
+df_final_wide <- pivot_wider(df_final_long, names_from = "name", values_from = "value")
+
 write.csv(
-  pivot_wider(df_final_long, names_from = "name", values_from = "value"),
+  df_final_wide,
   file = paste0("data_export_",Sys.Date() ,".csv")
   )
+
+# Note most of the data worked with is in the long format
+head(df_final_long)
+# as oppposed to the wide format which is exported here
+head(df_final_wide)
 
 ```
 
@@ -329,6 +360,7 @@ Note the dataset dates need to match if comparing .csv read and retrievals from 
 This assumes the data has been prepared in a .csv file which is included in this [GitHub](https://github.com/bws200/theil-sen-trend-analysis-ecan) repository under `/data`. It is for Environment Canterbury's Rangiora site only. A larger .csv file could be created which includes site name as an additional column.
 
 ```{r}
+#| label: data-read-csv
 #| column: page-right
 
 # Read file
@@ -340,13 +372,14 @@ df_csv <- read.csv(
     PM10 = PM10..ug.m3.,
     PM25 = PM2.5..ug.m3.
   ) |>
-  mutate(date = lubridate::dmy(date))
+  mutate(date = lubridate::dmy(date)) |>
+  filter(date >= "2016-01-01")
 
 df_csv |> 
   # Add as.character to make data %'s work ok
   mutate(date = as.character(date)) |> 
   openair::summaryPlot(
-    pollutant = "PM10"
+    pollutant = "PM25"
   )
 
 ```
@@ -356,12 +389,13 @@ The `.csv` dataset is not complete for 2022
 :::
 
 ```{r}
+#| label: trend-analysis-pm10-csv
 #| column: page-right
 
 # Run the trend analysis
 openair::TheilSen(
   df_csv,
-  pollutant = "PM10",
+  pollutant = "PM25",
   deseason = TRUE,
   date.format = "%Y",
   data.thresh = 75
@@ -369,4 +403,31 @@ openair::TheilSen(
 
 ```
 
+## Rounding {.appendix}
+
+The standard round function in R doesn't behave like others in excel so another function needs to be added. See this [Stack Overflow discussion](https://stackoverflow.com/questions/12688717/round-up-from-5) for more discussion on rounding in R.
+
+```{r}
+#| label: data-note-on-rounding
+
+# Round 0.5 is expected to round to 1
+round(0.5)
+
+# But instead we need a function to round like excel e.g. Function to always round 0.5 up
+round2 <- function(x, digits = 0) {
+  posneg <- sign(x)
+  z <- abs(x) * 10^digits
+  z <- z + 0.5
+  z <- trunc(z)
+  z <- z / 10^digits
+  z * posneg
+}
+
+# And try again with round2 which should round to 1
+round2(0.5)
+
+# Can also use janitor::round_half_up function which implements the same round2 function but without defining it
+janitor::round_half_up(0.5)
+
+```
 
