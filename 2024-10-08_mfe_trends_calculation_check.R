@@ -44,32 +44,36 @@ df_mfE_data_clean_long <-df_mfE_data_clean |>
   filter(date >= "2016-01-01") |> 
   filter(date <= "2023-12-31")
 
-# Theil Sen trend analysis for just Rangiora PM2.5 at this stage
-df_mfE_data_clean_long |> 
-  filter(site == "Rangiora") |> 
-  filter(pollutant == "PM2.5") |> 
-  # Select relevant instruments
-  filter(instrument %in% c("Amix", "Fidas200E", "TEOMFDMS", "ES642")) |>
-  # Select only relevant columns
-  select(c(date, instrument, value)) |> 
-  openair::TheilSen(
-    type = "instrument",
-    pollutant = "value",
-    deseason = TRUE,
-    date.format = "%Y",
-    data.thresh = 75,
-    # fontsize = 40
+# Define function for plotting all sites in a loop
+plot_trend <- function(data, site_chosen, pollutant_chosen) {
+  # Theil Sen trend analysis for just Rangiora PM2.5 at this stage
+  data |> 
+    filter(site == site_chosen) |> 
+    filter(pollutant == pollutant_chosen) |> 
+    # Select relevant instruments
+    # filter(instrument %in% c("Amix", "Fidas200E", "TEOMFDMS", "ES642")) |>
+    # Select only relevant columns
+    select(c(date, instrument, value)) |> 
+    openair::TheilSen(
+      type = "instrument",
+      pollutant = "value",
+      deseason = TRUE,
+      date.format = "%Y",
+      data.thresh = 75,
+      avg.time = "month",
+      main = site_chosen
+      # fontsize = 40
+    )
+}
+
+# Run loop to plot all sites
+for (site in unique(df_mfE_data_clean_long$site)) {
+  plot_trend(
+    data = df_mfE_data_clean_long,
+    site_chosen = site,
+    pollutant_chosen = "PM2.5"
   )
-
-
-
-
-
-
-
-
-
-
+}
 
 ### Single Rangiora excel file done for speed
 ### 
