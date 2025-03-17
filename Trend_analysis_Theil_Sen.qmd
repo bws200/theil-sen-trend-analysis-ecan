@@ -1,10 +1,12 @@
 ---
 author: BenS
 date: "`r Sys.Date()`"
-abstract: "Theil-Sen Trend Analysis Using Environment Cantebrury Data"
+title: "Theil-Sen Trend Analysis Using Environment Cantebrury Data"
 format:
   html:
     self-contained: true
+    table-of-contents: true
+    toc-location: left
 execute:
   warning: false
   message: false
@@ -25,6 +27,12 @@ library(DBI)
 This is an rmarkdown document showing how to calculate 10 year trends calculated using Environment Canterbury data. This is a working document and likely to update and change.
 
 The steps shown are from getting data, cleaning the data (with some decisions on analysis) and finally running the trend calculation. The trends are calculated using the `TheilSen` function from the `openair` package.
+
+::: callout-note
+
+There are some decisions in the code as to what time periods and sites to be included in the trend calculations. These need to be checked and possibly updated each time the trend calculations need to be run.
+
+:::
 
 ## Data retrieval
 
@@ -190,20 +198,20 @@ df_daily_pm <- df_final_long |>
     days_per_month = lubridate::days_in_month(date)
     )
 
+
 ```
 
 Before doing the trend estimate it is a good idea to plot the data to check for holes with the function `openair::summaryPlot()`.
 
 ```{r}
-#| label: pm10-summary-plot
+#| label: pm10-summary-plot-raw
 #| column: page-right
 #| fig-width: 20
 #| fig-height: 30
 
-# PM10
-p_sum_pm10 <- select(df_daily_pm, c("date", "site", "PM10")) |> 
-  # Treat date as.character to make % data capture work for summaryPlot
-  mutate(date = as.character(date)) |>
+p_sum_pm10_raw <- select(df_daily_pm, c("date", "site", "PM10")) |>
+  # treat date as.character to make % data capture work for summaryPlot
+  mutate(date = as.character(date)) |> 
   openair::summaryPlot(
     pollutant = "PM10",
     type = "site",
@@ -215,15 +223,14 @@ p_sum_pm10 <- select(df_daily_pm, c("date", "site", "PM10")) |>
 And PM~2.5~
 
 ```{r}
-#| label: pm25-summary-plot
+#| label: pm25-summary-plot-raw
 #| column: page-right
 #| fig-width: 20
 #| fig-height: 30
 
-# PM2.5
-p_sum_pm25 <- select(df_daily_pm, c("date", "site", "PM25")) |> 
-  # Treat date as.character to make % data capture work for summaryPlot
-  mutate(date = as.character(date)) |>
+p_sum_pm25_raw <- select(df_daily_pm, c("date", "site", "PM25")) |> 
+  # treat date as.character to make % data capture work for summaryPlot
+  mutate(date = as.character(date)) |> 
   openair::summaryPlot(
     pollutant = "PM25",
     type = "site",
@@ -237,22 +244,61 @@ The  summary plots show some decisions need to be made as to which sites to incl
 The following is a list of the decisions made. The code should reflect these decisions as well.
 
 - No trend should be calculated for Washdyke as the site has been changed and there has been a significant change in concentrations and occurrence of exceedances so we can remove those Washdyke stations from the data set.
-- For St Albans, the site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans.
+- For St Albans, the site was shut down on 2020-11-11 so that will be the end date for this trend analysis for St Albans. There are still six consecutive years (just!) at the old Coles Place site which is enough for trend analysis.
 
 ```{r}
 #| label: data-additional-decisions
 
+# These need updating each year trends are calculated
+
 df_daily_pm_clean <- df_daily_pm |>
-  # Remove Washdyke sites
-  filter(!(site %in% c("Washdyke Alpine", "Washdyke Flat Road"))) |> 
-  # Remove St Albans data prior to this date due to site movement
-  filter(!(date > as.Date("2020-11-11") & site == "St Albans"))
+  # Remove Washdyke Flat Road and Waimate Stadium site
+  filter(!(site %in% c("Washdyke Flat Road", "Waimate Stadium"))) |> 
   
-  ### Additional filtering steps TESTING - TO DELETE
-  # Testing removing prior to year 2020
-  # filter(site == "Rangiora")
+  # Remove St Albans data prior to this date due to site movement. There are still six consecutive years with over 75%
+  filter(!(site == "St Albans EP"))
 
 ```
+
+```{r}
+#| label: pm10-summary-plot-clean
+#| column: page-right
+#| fig-width: 20
+#| fig-height: 30
+
+p_sum_pm10_clean <- select(df_daily_pm_clean, c("date", "site", "PM10")) |> 
+  # treat date as.character to make % data capture work for summaryPlot
+  mutate(date = as.character(date)) |> 
+  openair::summaryPlot(
+    pollutant = "PM10",
+    type = "site",
+    fontsize = 20
+  )
+
+```
+
+And PM~2.5~
+
+```{r}
+#| label: pm25-summary-plot-clean
+#| column: page-right
+#| fig-width: 20
+#| fig-height: 30
+
+p_sum_pm25_clean <- select(df_daily_pm_clean, c("date", "site", "PM25")) |>
+  # treat date as.character to make % data capture work for summaryPlot
+  mutate(date = as.character(date)) |> 
+  openair::summaryPlot(
+    pollutant = "PM25",
+    type = "site",
+    fontsize = 20
+  )
+
+
+```
+
+
+
 
 ## Theil-Sen analysis
 
@@ -263,10 +309,9 @@ So now we can run the Theil-Sen trend analysis on the PM~10~ and PM~2.5~ dataset
 #| fig-width: 20
 #| fig-height: 20
 #| column: page-right
-#| message: false
-#| warning: false
 
 # PM10 trend analysis
+
 p_pm10 <- openair::TheilSen(
   df_daily_pm_clean,
   pollutant = "PM10",
@@ -274,7 +319,7 @@ p_pm10 <- openair::TheilSen(
   date.format = "%Y",
   type = "site",
   data.thresh = 75,
-  fontsize = 40
+  fontsize = 30
   )
 
 ```
@@ -284,8 +329,6 @@ p_pm10 <- openair::TheilSen(
 #| fig-width: 20
 #| fig-height: 20
 #| column: page-right
-#| message: false
-#| warning: false
 
 # And TheilSen for PM2.5
 p_pm25 <- openair::TheilSen(
@@ -295,28 +338,9 @@ p_pm25 <- openair::TheilSen(
   date.format = "%Y",
   type = "site",
   data.thresh = 75,
-  # alpha = 0.05,
-  fontsize = 40
+  fontsize = 30
   )
 
-df_daily_pm_clean |> 
-  select(c(date, site, PM25)) |> 
-  filter(date >= "2016-01-01") |> 
-  openair::summaryPlot(
-    pollutant = "PM25",
-    type = "site",
-    fontsize = 20)
-
-df_daily_pm_clean |>
-  #Some extra data decisions
-  filter(date >= "2016-01-01") |> 
-  # filter(date <= "2022-01-01") |> 
-  openair::TheilSen(
-    pollutant = "PM25",
-    fontsize = 40,
-    deseason = TRUE,
-    date.format = "%Y"
-  )
 
 ```
 
