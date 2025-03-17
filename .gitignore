@@ -5,11 +5,6 @@
 /.quarto/
 /renv/
 .Rprofile
-Trend_analysis_Theil_Sen.html
-MfE Daily PM 2014 to 2023.xlsx
-data_export_2024-04-05.csv
-data_export_2024-04-10.csv
-data_export_2024-10-07.csv
-data_export_2024-10-08.csv
-index.html
-rangiora.xlsx
+*.html
+*.xlsx
+*.csv

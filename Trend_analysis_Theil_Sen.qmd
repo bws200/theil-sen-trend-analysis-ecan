@@ -4,11 +4,6 @@ date: "`r Sys.Date()`"
 abstract: "Theil-Sen Trend Analysis Using Environment Cantebrury Data"
 format:
   html:
-    theme:
-      light: flatly
-      dark: darkly
-    toc: true
-    toc-location: left
     self-contained: true
 execute:
   warning: false
@@ -40,8 +35,8 @@ For this document we can just use the website to retrieve the data in `.csv` for
 ```{r}
 #| label: date-setup
 
-from_date <- "1/01/2013"
-to_date <- "7/10/2024"
+from_date <- "1/01/2015"
+to_date <- "31/12/2024"
 
 ### Number of full years check
 # Convert type and add a day to account for days between
@@ -251,11 +246,11 @@ df_daily_pm_clean <- df_daily_pm |>
   # Remove Washdyke sites
   filter(!(site %in% c("Washdyke Alpine", "Washdyke Flat Road"))) |> 
   # Remove St Albans data prior to this date due to site movement
-  filter(!(date > as.Date("2020-11-11") & site == "St Albans")) |> 
+  filter(!(date > as.Date("2020-11-11") & site == "St Albans"))
   
   ### Additional filtering steps TESTING - TO DELETE
   # Testing removing prior to year 2020
-  filter(site == "Rangiora")
+  # filter(site == "Rangiora")
 
 ```
 
@@ -277,7 +272,7 @@ p_pm10 <- openair::TheilSen(
   pollutant = "PM10",
   deseason = TRUE,
   date.format = "%Y",
-  # type = "site",
+  type = "site",
   data.thresh = 75,
   fontsize = 40
   )
@@ -405,12 +400,12 @@ openair::TheilSen(
 
 ## Rounding {.appendix}
 
-The standard round function in R doesn't behave like others in excel so another function needs to be added. See this [Stack Overflow discussion](https://stackoverflow.com/questions/12688717/round-up-from-5) for more discussion on rounding in R.
+The standard round function in R doesn't work like others in excel so another function needs to be added. See this [Stack Overflow discussion](https://stackoverflow.com/questions/12688717/round-up-from-5) for more discussion on rounding in R.
 
 ```{r}
 #| label: data-note-on-rounding
 
-# Round 0.5 is expected to round to 1
+# Round 0.5 is expected to round to 1 but R rounds it down to 0
 round(0.5)
 
 # But instead we need a function to round like excel e.g. Function to always round 0.5 up
@@ -426,7 +421,7 @@ round2 <- function(x, digits = 0) {
 # And try again with round2 which should round to 1
 round2(0.5)
 
-# Can also use janitor::round_half_up function which implements the same round2 function but without defining it
+# An easier method is just using the in-built janitor::round_half_up function which implements the same round2 function but without defining it
 janitor::round_half_up(0.5)
 
 ```
