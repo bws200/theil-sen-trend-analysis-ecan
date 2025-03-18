@@ -17,8 +17,6 @@ execute:
 
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse, warn.conflicts = FALSE)
-library(httr)
-library(DBI)
 
 ```
 
@@ -68,7 +66,7 @@ response_stations <- httr::GET(
   )
 
 # Basic list of stations as .csv file using URL above
-station_id_list <- content(
+station_id_list <- httr::content(
   response_stations,
   encoding = "UTF-8",
   show_col_types = FALSE
@@ -127,7 +125,7 @@ for (ii in station_id_list$SiteNo) {
   }
 
   # Response for that station received
-  dat_raw <- content(
+  dat_raw <- httr::content(
     response,
     encoding = "UTF-8",
     show_col_types = FALSE,
@@ -196,7 +194,9 @@ df_daily_pm <- df_final_long |>
     month = lubridate::month(date),
     year = lubridate::year(date),
     days_per_month = lubridate::days_in_month(date)
-    )
+    ) |> 
+  # Add time zone to date
+  mutate(date = ymd(date, tz = "Etc/GMT+12"))
 
 
 ```
@@ -210,8 +210,6 @@ Before doing the trend estimate it is a good idea to plot the data to check for 
 #| fig-height: 30
 
 p_sum_pm10_raw <- select(df_daily_pm, c("date", "site", "PM10")) |>
-  # treat date as.character to make % data capture work for summaryPlot
-  mutate(date = as.character(date)) |> 
   openair::summaryPlot(
     pollutant = "PM10",
     type = "site",
@@ -229,8 +227,6 @@ And PM~2.5~
 #| fig-height: 30
 
 p_sum_pm25_raw <- select(df_daily_pm, c("date", "site", "PM25")) |> 
-  # treat date as.character to make % data capture work for summaryPlot
-  mutate(date = as.character(date)) |> 
   openair::summaryPlot(
     pollutant = "PM25",
     type = "site",
@@ -267,8 +263,6 @@ df_daily_pm_clean <- df_daily_pm |>
 #| fig-height: 30
 
 p_sum_pm10_clean <- select(df_daily_pm_clean, c("date", "site", "PM10")) |> 
-  # treat date as.character to make % data capture work for summaryPlot
-  mutate(date = as.character(date)) |> 
   openair::summaryPlot(
     pollutant = "PM10",
     type = "site",
@@ -286,8 +280,6 @@ And PM~2.5~
 #| fig-height: 30
 
 p_sum_pm25_clean <- select(df_daily_pm_clean, c("date", "site", "PM25")) |>
-  # treat date as.character to make % data capture work for summaryPlot
-  mutate(date = as.character(date)) |> 
   openair::summaryPlot(
     pollutant = "PM25",
     type = "site",
@@ -314,6 +306,7 @@ So now we can run the Theil-Sen trend analysis on the PM~10~ and PM~2.5~ dataset
 
 p_pm10 <- openair::TheilSen(
   df_daily_pm_clean,
+  ylab = "PM10 (ug/m3)",
   pollutant = "PM10",
   deseason = TRUE,
   date.format = "%Y",
@@ -333,6 +326,7 @@ p_pm10 <- openair::TheilSen(
 # And TheilSen for PM2.5
 p_pm25 <- openair::TheilSen(
   df_daily_pm_clean,
+  ylab = "PM2.5 (ug/m3)",
   pollutant = "PM25",
   deseason = TRUE,
   date.format = "%Y",
@@ -395,8 +389,8 @@ df_csv <- read.csv(
   filter(date >= "2016-01-01")
 
 df_csv |> 
-  # Add as.character to make data %'s work ok
-  mutate(date = as.character(date)) |> 
+  # Add in time zone to date
+  mutate(date = ymd(date, tz = "Etc/GMT+12")) |> 
   openair::summaryPlot(
     pollutant = "PM25"
   )
@@ -422,7 +416,9 @@ openair::TheilSen(
 
 ```
 
-## Rounding {.appendix}
+## Appendix
+
+### Rounding
 
 The standard round function in R doesn't work like others in excel so another function needs to be added. See this [Stack Overflow discussion](https://stackoverflow.com/questions/12688717/round-up-from-5) for more discussion on rounding in R.
 
@@ -449,4 +445,16 @@ round2(0.5)
 janitor::round_half_up(0.5)
 
 ```
+### `openair` requirements
+
+Noting here as tz information was found to be required for `openair::summaryPlot()` to display correctly. E.g.
+
+```{r}
+#| eval: false
+
+mutate(date = ymd(date, tz = "Etc/GMT+12"))
+```
+
+
+
 
